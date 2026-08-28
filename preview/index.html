@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QuotaX 界面预览（mock 数据）</title>
+<style>
+  :root {
+    --bg: rgba(18, 18, 26, 0.85);
+    --bg-card: rgba(24, 24, 34, 0.92);
+    --border: rgba(255, 255, 255, 0.08);
+    --text: #e5e7eb;
+    --text-dim: #9ca3af;
+    --ok: #4ade80;
+    --warn: #fb923c;
+    --danger: #f87171;
+    --track: rgba(255, 255, 255, 0.12);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; font-family: "Segoe UI", "Microsoft YaHei", sans-serif; }
+
+  body {
+    min-height: 100vh;
+    background:
+      radial-gradient(1200px 600px at 20% 10%, #2b3a55 0%, transparent 60%),
+      radial-gradient(1000px 500px at 85% 80%, #3b2b55 0%, transparent 55%),
+      linear-gradient(135deg, #1a1d29 0%, #232736 100%);
+    padding: 48px;
+    color: var(--text);
+  }
+
+  h1 { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
+  .subtitle { color: var(--text-dim); font-size: 13px; margin-bottom: 32px; }
+  h2 { font-size: 14px; font-weight: 600; color: var(--text-dim); margin: 32px 0 12px; text-transform: uppercase; letter-spacing: 1px; }
+
+  /* ============ 小组件本体 ============ */
+  .widget { position: relative; width: 300px; user-select: none; }
+
+  /* 收起态横条（两行：周额度 + 5 小时窗口） */
+  .bar {
+    width: 210px; height: 42px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    backdrop-filter: blur(12px);
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 10px;
+    cursor: grab;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    transition: box-shadow .2s;
+  }
+  .bar:hover { box-shadow: 0 6px 20px rgba(0, 0, 0, 0.55); }
+
+  .k-dot {
+    width: 16px; height: 16px; border-radius: 4px; flex-shrink: 0;
+    background: linear-gradient(135deg, #60a5fa, #a78bfa);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 800; color: #fff;
+  }
+
+  .bar-rows { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+  .bar-row { display: flex; align-items: center; gap: 6px; }
+  .bar-row .label { font-size: 10px; color: var(--text-dim); width: 14px; flex-shrink: 0; }
+
+  .track { flex: 1; height: 5px; background: var(--track); border-radius: 3px; overflow: hidden; }
+  .fill { height: 100%; border-radius: 3px; background: var(--ok); transition: width .4s; }
+  .fill.warn { background: var(--warn); }
+  .fill.danger { background: var(--danger); }
+  .fill.error { background: var(--track); }
+
+  .pct { font-size: 10px; font-weight: 600; min-width: 28px; text-align: right; font-variant-numeric: tabular-nums; }
+  .pct.warn { color: var(--warn); }
+  .pct.danger { color: var(--danger); }
+
+  /* 展开卡片 */
+  .card {
+    position: absolute; top: 48px; left: 0;
+    width: 300px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    backdrop-filter: blur(16px);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+    padding: 14px 16px 10px;
+    opacity: 0;
+    transform: translateY(-6px) scale(.98);
+    transform-origin: top left;
+    pointer-events: none;
+    transition: opacity .18s, transform .18s;
+  }
+  .widget.expanded .card { opacity: 1; transform: none; pointer-events: auto; }
+
+  .card-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
+  .card-title { font-size: 13px; font-weight: 600; }
+  .card-time { font-size: 11px; color: var(--text-dim); }
+
+  .limit-row { margin-bottom: 12px; }
+  .limit-meta { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 5px; }
+  .limit-name { font-size: 12px; }
+  .limit-reset { font-size: 11px; color: var(--text-dim); }
+  .limit-bar { display: flex; align-items: center; gap: 8px; }
+  .limit-bar .track { height: 7px; }
+  .limit-bar .pct { font-size: 11px; min-width: 32px; }
+  .limit-nums { font-size: 11px; color: var(--text-dim); font-variant-numeric: tabular-nums; min-width: 72px; text-align: right; }
+
+  .extra-row {
+    display: flex; justify-content: space-between;
+    font-size: 12px; padding: 8px 0 4px;
+    border-top: 1px solid var(--border);
+  }
+  .extra-row .value { font-weight: 600; color: var(--ok); }
+
+  .card-foot {
+    display: flex; justify-content: space-between; align-items: center;
+    border-top: 1px solid var(--border);
+    padding-top: 8px; margin-top: 6px;
+    font-size: 11px; color: var(--text-dim);
+  }
+  .btn {
+    background: none; border: none; color: #60a5fa; font-size: 11px;
+    cursor: pointer; padding: 2px 4px; border-radius: 4px;
+  }
+  .btn:hover { background: rgba(96, 165, 250, 0.12); }
+
+  /* 预览页排版 */
+  .demo-area { position: relative; min-height: 320px; }
+  .hint { position: absolute; left: 340px; top: 6px; color: var(--text-dim); font-size: 12px; line-height: 1.8; }
+  .variants { display: flex; gap: 24px; flex-wrap: wrap; }
+  .variant { display: flex; flex-direction: column; gap: 8px; }
+  .variant .tag { font-size: 11px; color: var(--text-dim); }
+</style>
+</head>
+<body>
+
+<h1>QuotaX 界面预览</h1>
+<div class="subtitle">mock 数据 · 实际组件为无边框置顶窗口，此处背景模拟桌面</div>
+
+<h2>交互演示（悬停横条展开详情）</h2>
+<div class="demo-area">
+  <div class="widget" id="demo">
+    <div class="bar" id="demo-bar">
+      <div class="k-dot">K</div>
+      <div class="bar-rows">
+        <div class="bar-row">
+          <span class="label">周</span>
+          <div class="track"><div class="fill" style="width:62%"></div></div>
+          <span class="pct">62%</span>
+        </div>
+        <div class="bar-row">
+          <span class="label">5h</span>
+          <div class="track"><div class="fill" style="width:18%"></div></div>
+          <span class="pct">18%</span>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head">
+        <span class="card-title">Kimi Code 额度</span>
+        <span class="card-time" id="clock">12:30 刷新</span>
+      </div>
+
+      <div class="limit-row">
+        <div class="limit-meta">
+          <span class="limit-name">总额度（summary）</span>
+          <span class="limit-reset">3 天 5 小时后重置</span>
+        </div>
+        <div class="limit-bar">
+          <div class="track"><div class="fill" style="width:58%"></div></div>
+          <span class="pct">58%</span>
+          <span class="limit-nums">580 / 1000</span>
+        </div>
+      </div>
+
+      <div class="limit-row">
+        <div class="limit-meta">
+          <span class="limit-name">周额度（7 天）</span>
+          <span class="limit-reset">3 天 5 小时后重置</span>
+        </div>
+        <div class="limit-bar">
+          <div class="track"><div class="fill" style="width:62%"></div></div>
+          <span class="pct">62%</span>
+          <span class="limit-nums">620 / 1000</span>
+        </div>
+      </div>
+
+      <div class="limit-row">
+        <div class="limit-meta">
+          <span class="limit-name">5 小时窗口</span>
+          <span class="limit-reset">2h 14m 后恢复</span>
+        </div>
+        <div class="limit-bar">
+          <div class="track"><div class="fill" style="width:18%"></div></div>
+          <span class="pct">18%</span>
+          <span class="limit-nums">18 / 100</span>
+        </div>
+      </div>
+
+      <div class="extra-row">
+        <span>Extra Usage 余额</span>
+        <span class="value">¥ 25.00</span>
+      </div>
+
+      <div class="card-foot">
+        <button class="btn">⟳ 立即刷新</button>
+        <span>置顶 ☑</span>
+      </div>
+    </div>
+  </div>
+  <div class="hint">
+    ← 鼠标悬停横条试试<br>
+    悬停 200ms 展开，移出 300ms 收起<br>
+    实际组件可拖拽移动、位置记忆<br>
+    <br>
+    「总额度」行取自接口 summary 字段，<br>
+    为 null 时该行不显示（以实测为准）
+  </div>
+</div>
+
+<h2>状态变体</h2>
+<div class="variants">
+  <div class="variant">
+    <div class="bar">
+      <div class="k-dot">K</div>
+      <div class="bar-rows">
+        <div class="bar-row"><span class="label">周</span><div class="track"><div class="fill" style="width:45%"></div></div><span class="pct">45%</span></div>
+        <div class="bar-row"><span class="label">5h</span><div class="track"><div class="fill" style="width:10%"></div></div><span class="pct">10%</span></div>
+      </div>
+    </div>
+    <span class="tag">正常（&lt;80% 绿）</span>
+  </div>
+  <div class="variant">
+    <div class="bar">
+      <div class="k-dot">K</div>
+      <div class="bar-rows">
+        <div class="bar-row"><span class="label">周</span><div class="track"><div class="fill warn" style="width:83%"></div></div><span class="pct warn">83%</span></div>
+        <div class="bar-row"><span class="label">5h</span><div class="track"><div class="fill" style="width:22%"></div></div><span class="pct">22%</span></div>
+      </div>
+    </div>
+    <span class="tag">警告（≥80% 橙）</span>
+  </div>
+  <div class="variant">
+    <div class="bar">
+      <div class="k-dot">K</div>
+      <div class="bar-rows">
+        <div class="bar-row"><span class="label">周</span><div class="track"><div class="fill danger" style="width:96%"></div></div><span class="pct danger">96%</span></div>
+        <div class="bar-row"><span class="label">5h</span><div class="track"><div class="fill warn" style="width:85%"></div></div><span class="pct warn">85%</span></div>
+      </div>
+    </div>
+    <span class="tag">危险（≥95% 红）</span>
+  </div>
+  <div class="variant">
+    <div class="bar">
+      <div class="k-dot">K</div>
+      <div class="bar-rows">
+        <div class="bar-row"><span class="label">周</span><div class="track"><div class="fill error" style="width:62%"></div></div><span class="pct">⚠</span></div>
+        <div class="bar-row"><span class="label">5h</span><div class="track"><div class="fill error" style="width:18%"></div></div><span class="pct">⚠</span></div>
+      </div>
+    </div>
+    <span class="tag">刷新失败（灰 + ⚠）</span>
+  </div>
+</div>
+
+<script>
+  // 悬停 200ms 展开，移出 300ms 收起（与正式组件一致）
+  const widget = document.getElementById('demo');
+  if (location.hash === '#expanded') widget.classList.add('expanded');
+  let openTimer, closeTimer;
+  widget.addEventListener('mouseenter', () => {
+    clearTimeout(closeTimer);
+    openTimer = setTimeout(() => widget.classList.add('expanded'), 200);
+  });
+  widget.addEventListener('mouseleave', () => {
+    clearTimeout(openTimer);
+    closeTimer = setTimeout(() => widget.classList.remove('expanded'), 300);
+  });
+</script>
+
+</body>
+</html>

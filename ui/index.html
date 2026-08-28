@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QuotaX</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="widget" id="widget">
+  <!-- 收起态横条：整条可拖拽 -->
+  <div class="bar" id="bar" data-tauri-drag-region>
+    <div class="k-dot">K</div>
+    <div class="bar-rows">
+      <div class="bar-row">
+        <span class="label">周</span>
+        <div class="track"><div class="fill" id="bar-fill-1"></div></div>
+        <span class="pct" id="bar-pct-1">--</span>
+      </div>
+      <div class="bar-row">
+        <span class="label">5h</span>
+        <div class="track"><div class="fill" id="bar-fill-2"></div></div>
+        <span class="pct" id="bar-pct-2">--</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 展开卡片 -->
+  <div class="card" id="card">
+    <div class="card-head">
+      <span class="card-title">Kimi Code 额度</span>
+      <span class="card-time" id="refresh-time">--</span>
+    </div>
+    <div id="error-line" class="error-line" hidden></div>
+    <div id="rows"></div>
+    <div class="extra-row" id="extra-row" hidden>
+      <span>Extra Usage 余额</span>
+      <span class="value" id="extra-value"></span>
+    </div>
+    <div class="card-foot">
+      <button class="btn" id="btn-refresh">⟳ 立即刷新</button>
+      <label class="top-toggle"><input type="checkbox" id="chk-top"> 置顶</label>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

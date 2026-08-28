@@ -1,0 +1,12 @@
+# 项目级 cargo 配置：使用 rsproxy 镜像加速 crates.io 访问（仅作用于本项目）
+[source.crates-io]
+replace-with = 'rsproxy-sparse'
+
+[source.rsproxy-sparse]
+registry = "sparse+https://rsproxy.cn/index/"
+
+[registries.rsproxy]
+index = "sparse+https://rsproxy.cn/index/"
+
+[net]
+git-fetch-with-cli = true

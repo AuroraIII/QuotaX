@@ -1,0 +1,129 @@
+/* QuotaX —— 与 preview/index.html 对齐的小组件样式（透明窗口版） */
+
+:root {
+  --bg: rgba(18, 18, 26, 0.85);
+  --bg-card: rgba(24, 24, 34, 0.92);
+  --border: rgba(255, 255, 255, 0.08);
+  --text: #e5e7eb;
+  --text-dim: #9ca3af;
+  --ok: #4ade80;
+  --warn: #fb923c;
+  --danger: #f87171;
+  --track: rgba(255, 255, 255, 0.12);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; font-family: "Segoe UI", "Microsoft YaHei", sans-serif; }
+
+html, body {
+  width: 320px;
+  height: 340px;
+  background: transparent;
+  overflow: hidden;
+  color: var(--text);
+  user-select: none;
+}
+
+.widget { position: relative; width: 300px; }
+
+/* ============ 收起态横条 ============ */
+.bar {
+  width: 210px; height: 42px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  backdrop-filter: blur(12px);
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 10px;
+  cursor: grab;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  transition: box-shadow .2s;
+}
+.bar:hover { box-shadow: 0 6px 20px rgba(0, 0, 0, 0.55); }
+/* 拖拽区域：子元素不接收指针事件，让 drag-region 覆盖整条横条 */
+.bar > * { pointer-events: none; }
+
+.k-dot {
+  width: 16px; height: 16px; border-radius: 4px; flex-shrink: 0;
+  background: linear-gradient(135deg, #60a5fa, #a78bfa);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 800; color: #fff;
+}
+
+.bar-rows { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+.bar-row { display: flex; align-items: center; gap: 6px; }
+.bar-row .label { font-size: 10px; color: var(--text-dim); width: 14px; flex-shrink: 0; }
+
+.track { flex: 1; height: 5px; background: var(--track); border-radius: 3px; overflow: hidden; }
+.fill { height: 100%; border-radius: 3px; background: var(--ok); transition: width .4s; }
+.fill.warn { background: var(--warn); }
+.fill.danger { background: var(--danger); }
+.fill.error { background: var(--track); }
+
+.pct { font-size: 10px; font-weight: 600; min-width: 28px; text-align: right; font-variant-numeric: tabular-nums; }
+.pct.warn { color: var(--warn); }
+.pct.danger { color: var(--danger); }
+
+/* ============ 展开卡片 ============ */
+.card {
+  position: absolute; top: 48px; left: 0;
+  width: 300px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  backdrop-filter: blur(16px);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  padding: 14px 16px 10px;
+  opacity: 0;
+  transform: translateY(-6px) scale(.98);
+  transform-origin: top left;
+  pointer-events: none;
+  transition: opacity .18s, transform .18s;
+}
+.widget.expanded .card { opacity: 1; transform: none; pointer-events: auto; }
+
+.card-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
+.card-title { font-size: 13px; font-weight: 600; }
+.card-time { font-size: 11px; color: var(--text-dim); }
+
+.error-line {
+  font-size: 11px; color: var(--warn);
+  background: rgba(251, 146, 60, 0.1);
+  border: 1px solid rgba(251, 146, 60, 0.25);
+  border-radius: 6px;
+  padding: 5px 8px;
+  margin-bottom: 10px;
+  word-break: break-all;
+}
+
+.limit-row { margin-bottom: 12px; }
+.limit-row.stale { opacity: 0.55; }
+.limit-meta { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 5px; }
+.limit-name { font-size: 12px; }
+.limit-reset { font-size: 11px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.limit-bar { display: flex; align-items: center; gap: 8px; }
+.limit-bar .track { height: 7px; }
+.limit-bar .pct { font-size: 11px; min-width: 32px; }
+.limit-nums { font-size: 11px; color: var(--text-dim); font-variant-numeric: tabular-nums; min-width: 72px; text-align: right; }
+
+.extra-row {
+  display: flex; justify-content: space-between;
+  font-size: 12px; padding: 8px 0 4px;
+  border-top: 1px solid var(--border);
+}
+.extra-row .value { font-weight: 600; color: var(--ok); }
+
+.card-foot {
+  display: flex; justify-content: space-between; align-items: center;
+  border-top: 1px solid var(--border);
+  padding-top: 8px; margin-top: 6px;
+  font-size: 11px; color: var(--text-dim);
+}
+.btn {
+  background: none; border: none; color: #60a5fa; font-size: 11px;
+  cursor: pointer; padding: 2px 4px; border-radius: 4px;
+}
+.btn:hover { background: rgba(96, 165, 250, 0.12); }
+.btn:disabled { color: var(--text-dim); cursor: default; }
+
+.top-toggle { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+.top-toggle input { accent-color: #60a5fa; cursor: pointer; }

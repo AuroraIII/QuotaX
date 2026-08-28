@@ -1,0 +1,17 @@
+# Rust / Tauri
+src-tauri/target/
+src-tauri/gen/schemas/
+
+# Node
+node_modules/
+
+# WebView2 沙箱重定向目录
+.webview2/
+
+# gh CLI 本地配置与便携二进制（沙箱环境重定向用）
+.gh/
+.gh-device-code
+.tools/
+
+# 本地运行产物
+*.log
