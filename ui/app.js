@@ -161,7 +161,11 @@ widget.addEventListener('mouseleave', () => {
   clearTimeout(openTimer);
   closeTimer = setTimeout(() => widget.classList.remove('expanded'), 300);
 });
-window.addEventListener('blur', () => widget.classList.remove('expanded'));
+// 失焦自动收起（可通过 settings.json collapse_on_blur 关闭，默认开启）
+let collapseOnBlur = true;
+window.addEventListener('blur', () => {
+  if (collapseOnBlur) widget.classList.remove('expanded');
+});
 
 // 手动刷新
 btnRefresh.addEventListener('click', async () => {
@@ -188,6 +192,7 @@ setInterval(() => {
   try {
     const s = await invoke('get_settings');
     chkTop.checked = s.always_on_top !== false;
+    collapseOnBlur = s.collapse_on_blur !== false;
   } catch (e) { console.error(e); }
   await listen('usage-update', onUsageUpdate);
 })();

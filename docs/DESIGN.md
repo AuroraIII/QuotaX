@@ -173,11 +173,11 @@ Authorization: Bearer <access_token>
 ┌─────────────────┴───────────────────────────┐
 │ Rust 后端                                    │
 │  poller.rs   tokio 定时器，60s 轮询，失败退避 │
-│  usage.rs    GET /oauth/usage → 强类型结构   │
+│  usage.rs    GET /usages → 强类型结构        │
 │  credentials.rs 读凭证 / 到期刷新 / 原子写回 │
 └─────────────────────────────────────────────┘
                   │ HTTPS
-        api.kimi.com /coding/v1/oauth/usage
+        api.kimi.com /coding/v1/usages
 ```
 
 计划目录结构：
@@ -316,3 +316,46 @@ QuotaX/
 
 - dev 运行期间 kimi CLI（PID 264860）同时在跑；QuotaX 每轮重读凭证文件，某轮观测到凭证文件被 CLI 自行刷新（`expires_at` 更新为未来时间），QuotaX 随后直接复用新 token，全程无冲突；
 - 手动探测阶段的多次 refresh 复用同一旧 refresh_token 均返回 200（见 A.4），未触发 token 族失效。
+
+## 附录 B：实施核查与改进清单
+
+> 核查时间：2026-08-28 · 对照本文档逐项核对实际代码（`src-tauri/src/*`、`ui/*`、`tauri.conf.json`），`cargo check` 通过。
+
+### B.1 核查结论
+
+设计主体已全部落地：凭证复用/刷新/原子写回、`/usages` 宽松解析与字段映射、60s 轮询 + 退避 + 401 重试、横条/卡片 UI 与阈值变色、托盘菜单、位置持久化与多显示器回退均与设计一致。首轮核查（2026-08-28）发现的差距项已于 2026-08-29 全部完成（见 B.2/B.4）。
+
+### B.2 差距与改进项（按优先级）
+
+| 优先级 | 项目 | 设计出处 | 现状 |
+| --- | --- | --- | --- |
+| P0 | 托盘图标在用量 ≥ 80% 时叠加橙色提示点 | 4.3 | ✅ 已完成（2026-08-29）：`icons/icon-warn.ico`（白圈橙点角标，16/24/32/48/64/256 六尺寸），poller 每次成功抓取后计算 `max(used/limit)`，≥ 80% 经 `tray_by_id("quotax-tray")` 切换，回落恢复默认；仅状态翻转时切换 |
+| P1 | 轮询间隔可配置（默认 60s，范围 30s–10min） | 6 | ✅ 已完成（2026-08-29）：`Settings.poll_interval_secs`（默认 60，钳制 30–600），poller 每轮读取最新值，免重启生效；退避逻辑不变 |
+| P1 | 「失焦自动收起」提供配置开关 | 4.2 | ✅ 已完成（2026-08-29）：`Settings.collapse_on_blur`（默认 true）经 `get_settings` 暴露，前端 `blur` 监听按配置决定是否收起 |
+| P2 | 展开卡片内容超出处理 | 4.2 | ✅ 已完成（2026-08-29）：`#rows` 设 `max-height: 144px` + `overflow-y: auto`（4px 细滚动条），`limits[]` 行数多时行区滚动，不再被窗口底部裁剪 |
+| P2 | 文档勘误：第 5 节架构图接口路径 | 5 | 已修正为 `/usages`（首轮核查时修订） |
+
+### B.3 改进实施约定
+
+- 托盘橙点：Rust 侧在 `usage-update` 载荷计算 `max(used/limit)`，≥ 80% 时 `TrayIcon::set_icon` 切换为带橙点的预生成图标（`src-tauri/icons/` 增加 `icon-warn.ico`），恢复 < 80% 时切回默认；
+- 新增配置项统一落入 `settings.json`（`poll_interval_secs`、`collapse_on_blur`），poller 每轮读取最新值，无需重启生效；
+- 改动后同步更新本文档对应章节与 README。
+
+### B.4 改进实施记录（2026-08-29）
+
+- **托盘超量提醒（P0）**：`icon-warn.ico` 由原始 `icon.ico` 各尺寸条目叠加右下角角标（白色描边 + `#fb923c` 橙点）生成；Rust 侧经 `ico` crate 在启动时解码（取 ≤48px 最大尺寸适配托盘 DPI），`include_bytes!` 内嵌。poller 仅在 `warn` 状态翻转时调用 `set_icon`，避免每轮重建原生图标；抓取失败时保持现有图标（与 UI 展示旧数据的语义一致）。
+- **轮询间隔可配置（P1）**：`Settings` 新增 `poll_interval_secs`，`poll_interval_secs_clamped()` 统一钳制（30–600）；poller 循环内每轮 `load_settings()` 读取最新值，`POLL_INTERVAL` 常量移除。
+- **失焦收起开关（P1）**：`Settings` 新增 `collapse_on_blur`，随 `get_settings` 命令返回；`ui/app.js` 初始化时读入，`blur` 事件按配置执行。
+- **卡片溢出（P2）**：`ui/style.css` 的 `#rows` 限高 144px（按窗口 340px 高度、含错误行与 Extra Usage 行的最坏情况预算）并允许纵向滚动。
+- 验证：`cargo check` 通过；`cargo test`（`warn_icon_decodes`、`max_used_pct_across_rows`）通过。
+
+### B.5 改进实施记录（2026-08-29 · 第二批）
+
+- **透明窗口禁用 backdrop-filter（P2）**：WebView2 透明窗口下 `backdrop-filter` 按元素矩形包围盒渲染、无视 `border-radius`，导致横条/卡片四角出现方形硬角阴影。修复：删除 `.bar` / `.card` 的 `backdrop-filter: blur(...)` 声明（`tauri.conf.json` 的 `"shadow": false` 保持不变）；补偿性提高背景不透明度保证可读性（`--bg: rgba(18,18,26,0.92)`、`--bg-card: rgba(24,24,34,0.96)`）；软化阴影（bar: `0 6px 20px rgba(0,0,0,0.3)`，hover `0 8px 24px rgba(0,0,0,0.38)`；card: `0 10px 32px rgba(0,0,0,0.35)`）。结论：透明窗口下毛玻璃效果与圆角不可兼得，改用高不透明度深色底 + 柔和 box-shadow。
+- **托盘重复创建根因（P1）**：`tauri.conf.json` 的 `"app.trayIcon"` 配置块会让 Tauri 自动创建一个**无菜单**的托盘图标，与 `main.rs` 中 `TrayIconBuilder::with_id("quotax-tray")` 创建的带菜单图标并存，表现为托盘出现两个图标。修复：删除配置中的 `trayIcon` 块，托盘完全由代码创建（菜单、左键聚焦、超量角标均挂在代码创建的实例上）。
+- **凭证写回重试机制（P1）**：kimi CLI 运行时持有凭证文件句柄，poller 刷新 token 后 `write_atomic` 的 rename 可能被 Windows 拒绝（os error 5），原实现只记日志即丢弃，新 refresh_token 未持久化（旋转后的旧 token 仅剩重用宽限期，存在失效风险）。修复：poller 主循环维护 `pending_write: Option<Credentials>`；`refresh_guarded` 写回失败时暂存新凭证；每轮 fetch 前经 `retry_pending_write` 重试——文件 token 与 pending 一致视为已写入、文件 `expires_at` 更新说明 CLI 已自行刷新（丢弃 pending）、否则重试原子写回；日志仅在状态变化时打印（首次失败、最终成功/被取代），避免每轮刷屏。
+
+### B.6 改进实施记录（2026-08-29 · 第三批）
+
+- **阴影方形角根因修正与修复（P0）**：上一批（B.5）将方形角归因于 `backdrop-filter` 只命中了部分问题，残留阴影实为 **CSS box-shadow 被窗口硬边界矩形裁剪**——横条紧贴窗口左上角 (0,0)、卡片 300px 宽贴近 320px 窗口右缘/底部，阴影 blur 区越出窗口即被直边裁断（与 DWM 无关：`shadow: false` 经 tao `with_undecorated_shadow(false)` 已生效）。修复：窗口加大至 **372×372**（`tauri.conf.json` + `main.rs` 的 `WINDOW_W/H` 常量同步），`html,body` 增加 **36px 透明边距**容纳阴影（最大 blur 32px + 余量），可视内容尺寸不变。验证：实机截屏确认四角圆角干净、阴影柔和无裁切。
+- 经验记录：调试截图时 GDI `CopyFromScreen` / `BitBlt`（含 CAPTUREBLT）均抓不到 WebView2 DirectComposition 合成的透明窗口内容，需以用户实机截图或 Windows.Graphics.Capture 为准。

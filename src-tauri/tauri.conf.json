@@ -12,8 +12,8 @@
       {
         "label": "main",
         "title": "QuotaX",
-        "width": 320,
-        "height": 340,
+        "width": 372,
+        "height": 372,
         "decorations": false,
         "transparent": true,
         "alwaysOnTop": true,
@@ -23,11 +23,6 @@
         "focus": false
       }
     ],
-    "trayIcon": {
-      "iconPath": "icons/icon.ico",
-      "iconAsTemplate": false,
-      "menuOnLeftClick": false
-    },
     "security": {
       "csp": null
     }

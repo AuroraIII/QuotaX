@@ -1,8 +1,10 @@
 /* QuotaX —— 与 preview/index.html 对齐的小组件样式（透明窗口版） */
 
 :root {
-  --bg: rgba(18, 18, 26, 0.85);
-  --bg-card: rgba(24, 24, 34, 0.92);
+  /* 不透明度略高：WebView2 透明窗口下 backdrop-filter 按矩形包围盒渲染、无视
+     border-radius（四角出现方形硬角阴影），已禁用毛玻璃，改以较高不透明度保证可读性 */
+  --bg: rgba(18, 18, 26, 0.92);
+  --bg-card: rgba(24, 24, 34, 0.96);
   --border: rgba(255, 255, 255, 0.08);
   --text: #e5e7eb;
   --text-dim: #9ca3af;
@@ -15,8 +17,11 @@
 * { margin: 0; padding: 0; box-sizing: border-box; font-family: "Segoe UI", "Microsoft YaHei", sans-serif; }
 
 html, body {
-  width: 320px;
-  height: 340px;
+  /* 窗口比内容大一圈：CSS box-shadow 在窗口硬边界处会被矩形裁剪（出现方形角），
+     四周留出 36px 透明边距容纳阴影（最大 blur 32px） */
+  width: 372px;
+  height: 372px;
+  padding: 36px;
   background: transparent;
   overflow: hidden;
   color: var(--text);
@@ -31,14 +36,13 @@ html, body {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 12px;
-  backdrop-filter: blur(12px);
   display: flex; align-items: center; gap: 8px;
   padding: 5px 10px;
   cursor: grab;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
   transition: box-shadow .2s;
 }
-.bar:hover { box-shadow: 0 6px 20px rgba(0, 0, 0, 0.55); }
+.bar:hover { box-shadow: 0 8px 24px rgba(0, 0, 0, 0.38); }
 /* 拖拽区域：子元素不接收指针事件，让 drag-region 覆盖整条横条 */
 .bar > * { pointer-events: none; }
 
@@ -70,8 +74,7 @@ html, body {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 12px;
-  backdrop-filter: blur(16px);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.35);
   padding: 14px 16px 10px;
   opacity: 0;
   transform: translateY(-6px) scale(.98);
@@ -94,6 +97,11 @@ html, body {
   margin-bottom: 10px;
   word-break: break-all;
 }
+
+/* limits 行数多时行区滚动，避免卡片底部被窗口裁剪（窗口 372px 高度下的安全预算） */
+#rows { max-height: 144px; overflow-y: auto; }
+#rows::-webkit-scrollbar { width: 4px; }
+#rows::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.15); border-radius: 2px; }
 
 .limit-row { margin-bottom: 12px; }
 .limit-row.stale { opacity: 0.55; }

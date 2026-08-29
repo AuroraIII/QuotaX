@@ -14,8 +14,10 @@ use tauri::menu::{CheckMenuItem, Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 
-const WINDOW_W: i32 = 320;
-const WINDOW_H: i32 = 340;
+// 窗口比可视内容（300px 宽）大 36px/边：透明边距用于容纳 CSS box-shadow，
+// 否则阴影在窗口边界被矩形裁剪（详见 ui/style.css 注释）
+const WINDOW_W: i32 = 372;
+const WINDOW_H: i32 = 372;
 
 /// 手动刷新信号（托盘/按钮 → poller）
 struct RefreshSignal(Arc<tokio::sync::Notify>);
@@ -31,6 +33,16 @@ struct Settings {
     x: Option<i32>,
     y: Option<i32>,
     always_on_top: Option<bool>,
+    /// 轮询间隔（秒），默认 60，钳制在 30–600（poller 每轮读取，免重启生效）
+    poll_interval_secs: Option<u64>,
+    /// 窗口失焦自动收起展开卡片，默认 true
+    collapse_on_blur: Option<bool>,
+}
+
+impl Settings {
+    fn poll_interval_secs_clamped(&self) -> u64 {
+        self.poll_interval_secs.unwrap_or(60).clamp(30, 600)
+    }
 }
 
 fn settings_path() -> PathBuf {

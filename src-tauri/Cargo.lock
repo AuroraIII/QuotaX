@@ -2512,6 +2512,7 @@ name = "quotax"
 version = "0.1.0"
 dependencies = [
  "directories",
+ "ico",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
