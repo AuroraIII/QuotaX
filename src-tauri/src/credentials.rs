@@ -86,12 +86,15 @@ pub fn read() -> Result<Credentials, CredError> {
     serde_json::from_str(&text).map_err(|e| CredError::Parse(e.to_string()))
 }
 
-pub fn is_stale(creds: &Credentials) -> bool {
-    let now = std::time::SystemTime::now()
+pub fn now_secs() -> i64 {
+    std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-    creds.expires_at - now < EXPIRY_MARGIN_SECS
+        .unwrap_or(0)
+}
+
+pub fn is_stale(creds: &Credentials) -> bool {
+    creds.expires_at - now_secs() < EXPIRY_MARGIN_SECS
 }
 
 /// 调用 OAuth refresh 端点（POST {oauth_host}/api/oauth/token，form 编码）。
@@ -121,9 +124,19 @@ pub async fn refresh(
             body: body.chars().take(300).collect(),
         });
     }
+    parse_token_response(&body, Some(refresh_token))
+}
+
+/// 解析 token 端点成功响应（refresh 与设备码流程共用，结构完全一致）。
+/// `prev_refresh_token`：响应缺 refresh_token 字段时的兜底（refresh 场景传旧值）；
+/// `expires_at` 缺省时按 now + expires_in 本地补齐。
+pub fn parse_token_response(
+    body: &str,
+    prev_refresh_token: Option<&str>,
+) -> Result<Credentials, CredError> {
     // 兼容 expires_at / expires_in 两种字段
     #[derive(Deserialize)]
-    struct RefreshResp {
+    struct TokenResp {
         access_token: String,
         #[serde(default)]
         refresh_token: Option<String>,
@@ -134,17 +147,16 @@ pub async fn refresh(
         #[serde(default)]
         scope: Option<String>,
     }
-    let r: RefreshResp =
-        serde_json::from_str(&body).map_err(|e| CredError::Parse(e.to_string()))?;
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
+    let r: TokenResp =
+        serde_json::from_str(body).map_err(|e| CredError::Parse(e.to_string()))?;
     let expires_in = r.expires_in.unwrap_or(900);
     Ok(Credentials {
         access_token: r.access_token,
-        refresh_token: r.refresh_token.unwrap_or_else(|| refresh_token.to_string()),
-        expires_at: r.expires_at.unwrap_or(now + expires_in),
+        refresh_token: r
+            .refresh_token
+            .or_else(|| prev_refresh_token.map(str::to_string))
+            .unwrap_or_default(),
+        expires_at: r.expires_at.unwrap_or(now_secs() + expires_in),
         expires_in,
         token_type: "Bearer".into(),
         scope: r.scope.or(Some("kimi-code".into())),

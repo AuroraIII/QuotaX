@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod auth;
 mod credentials;
 mod poller;
 mod usage;
@@ -19,12 +20,14 @@ use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 const WINDOW_W: i32 = 372;
 const WINDOW_H: i32 = 372;
 
-/// 手动刷新信号（托盘/按钮 → poller）
+/// 手动刷新信号（托盘/按钮 → poller；auth 登录成功后也经此立即抓取）
 struct RefreshSignal(Arc<tokio::sync::Notify>);
 /// 置顶状态
 struct AlwaysOnTop(AtomicBool);
 /// 托盘「置顶」菜单项（状态同步用）
 struct TrayTopItem(Mutex<Option<CheckMenuItem<tauri::Wry>>>);
+/// 托盘「登录账号」菜单项（poller 按 needs_login 翻转可用状态）
+struct TrayLoginItem(Mutex<Option<MenuItem<tauri::Wry>>>);
 /// 拖动防抖：上次落盘时间
 struct LastSave(Mutex<Option<Instant>>);
 
@@ -127,11 +130,16 @@ fn main() {
         .manage(RefreshSignal(Arc::new(tokio::sync::Notify::new())))
         .manage(AlwaysOnTop(AtomicBool::new(true)))
         .manage(TrayTopItem(Mutex::new(None)))
+        .manage(TrayLoginItem(Mutex::new(None)))
+        .manage(auth::LoginState::default())
         .manage(LastSave(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             refresh_now,
             set_always_on_top,
-            get_settings
+            get_settings,
+            auth::start_login,
+            auth::cancel_login,
+            auth::open_auth_url
         ])
         .setup(|app| {
             let settings = load_settings();
@@ -140,15 +148,16 @@ fn main() {
             if let Some(win) = app.get_webview_window("main") {
                 let mut restored = false;
                 if let (Some(x), Some(y)) = (settings.x, settings.y) {
-                    // 坐标须落在某个显示器内，否则回退默认位置
+                    // 坐标与某显示器有交集即可恢复（允许贴边/少量出屏，如横条贴屏幕顶时
+                    // 窗口 36px 透明边距在屏外）；完全离开所有显示器才回退默认位置
                     if let Ok(monitors) = win.available_monitors() {
                         let inside = monitors.iter().any(|m| {
                             let mp = m.position();
                             let ms = m.size();
-                            x >= mp.x
-                                && y >= mp.y
-                                && x + WINDOW_W <= mp.x + ms.width as i32
-                                && y + WINDOW_H <= mp.y + ms.height as i32
+                            x < mp.x + ms.width as i32
+                                && x + WINDOW_W > mp.x
+                                && y < mp.y + ms.height as i32
+                                && y + WINDOW_H > mp.y
                         });
                         if inside {
                             let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
@@ -184,11 +193,14 @@ fn main() {
 
             // ---- 系统托盘 ----
             let refresh_item = MenuItem::with_id(app, "refresh", "立即刷新", true, None::<&str>)?;
+            // 登录账号：默认禁用，仅 needs_login（凭证缺失/refresh 被拒）时由 poller 翻转可用
+            let login_item = MenuItem::with_id(app, "login", "登录账号", false, None::<&str>)?;
             let top_item =
                 CheckMenuItem::with_id(app, "top", "置顶", true, true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&refresh_item, &top_item, &quit_item])?;
+            let menu = Menu::with_items(app, &[&refresh_item, &login_item, &top_item, &quit_item])?;
             *app.state::<TrayTopItem>().0.lock().unwrap() = Some(top_item.clone());
+            *app.state::<TrayLoginItem>().0.lock().unwrap() = Some(login_item.clone());
 
             TrayIconBuilder::with_id("quotax-tray")
                 .icon(app.default_window_icon().unwrap().clone())
@@ -197,6 +209,13 @@ fn main() {
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id().as_ref() {
                     "refresh" => app.state::<RefreshSignal>().0.notify_one(),
+                    "login" => {
+                        // 需要登录时可用：聚焦主窗，卡片正展示登录视图
+                        if let Some(w) = app.get_webview_window("main") {
+                            let _ = w.show();
+                            let _ = w.set_focus();
+                        }
+                    }
                     "top" => {
                         let cur = app.state::<AlwaysOnTop>().0.load(Ordering::SeqCst);
                         apply_always_on_top(app, !cur);

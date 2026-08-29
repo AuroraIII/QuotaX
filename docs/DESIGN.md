@@ -46,7 +46,8 @@ QuotaX 是一个常驻桌面的迷你小组件，用于实时监测 Kimi Code（
 - access_token **15 分钟过期**，组件必须实现 refresh 流程；
 - refresh：`POST {oauth_host}/api/oauth/token`（form 编码的标准 OAuth refresh_token grant；`oauth_host` 默认 `https://auth.kimi.com`，实测见附录 A）；
 - 刷新成功后写回凭证文件，采用 **tmp → rename 原子写**（与 CLI 行为一致），避免与正在运行的 CLI 互相损坏文件；
-- 若 refresh_token 旋转导致 401，重新读文件重试一次（缓解与 CLI 并发刷新的竞争）。
+- 若 refresh_token 旋转导致 401，重新读文件重试一次（缓解与 CLI 并发刷新的竞争）；
+- **内置设备码登录为兜底授权路径**（RFC 8628，2026-08-29 实施，见 `src-tauri/src/auth.rs` 与附录 B.8）：复用优先，凭证可用时绝不出现登录 UI；仅凭证文件缺失或 refresh 被服务端拒绝（HTTP 400/401）时进入「需要登录」状态，卡片展示登录视图（用户码 + 授权页 + 倒计时），成功后凭证按 CLI 格式原子写入同一文件。
 
 ### 2.2 额度接口
 
@@ -359,3 +360,22 @@ QuotaX/
 
 - **阴影方形角根因修正与修复（P0）**：上一批（B.5）将方形角归因于 `backdrop-filter` 只命中了部分问题，残留阴影实为 **CSS box-shadow 被窗口硬边界矩形裁剪**——横条紧贴窗口左上角 (0,0)、卡片 300px 宽贴近 320px 窗口右缘/底部，阴影 blur 区越出窗口即被直边裁断（与 DWM 无关：`shadow: false` 经 tao `with_undecorated_shadow(false)` 已生效）。修复：窗口加大至 **372×372**（`tauri.conf.json` + `main.rs` 的 `WINDOW_W/H` 常量同步），`html,body` 增加 **36px 透明边距**容纳阴影（最大 blur 32px + 余量），可视内容尺寸不变。验证：实机截屏确认四角圆角干净、阴影柔和无裁切。
 - 经验记录：调试截图时 GDI `CopyFromScreen` / `BitBlt`（含 CAPTUREBLT）均抓不到 WebView2 DirectComposition 合成的透明窗口内容，需以用户实机截图或 Windows.Graphics.Capture 为准。
+
+### B.7 改进实施记录（2026-08-29 · 第四批）
+
+- **内置 OAuth 登录提示词（P1，已于 B.8 实施）**：逆向 kimi CLI 0.36.0 确认其支持 OAuth Device Flow（RFC 8628），并对线上端点实测：`POST {oauth_host}/api/oauth/device_authorization`（form 仅 `client_id`）→ 200（`device_code`/`user_code`/`verification_uri_complete`/`expires_in=1800`/`interval=5`）；`POST /api/oauth/token` + `grant_type=urn:ietf:params:oauth:grant-type:device_code` 未授权时返回标准 `authorization_pending`，成功响应结构与 refresh 完全一致。无需本地回调服务器，可作为「凭证文件缺失/refresh_token 失效」时的应用内兜底授权路径。完整实现方案与验收标准见 `docs/PROMPT-builtin-oauth-login.md`。
+- **macOS 适配可行性核查（P2）**：通读四个源码文件——全部为纯 Tauri 抽象层调用，无 Win32 直调、无 `cfg(target_os)` 平台分支（`windows_subsystem` 属性在非 Windows 为空操作）；依赖（tauri 2 / reqwest-rustls / tokio / serde / directories / ico）均官方支持 macOS；`src-tauri/icons/icon.icns` 已存在。本机 `cargo check --target aarch64-apple-darwin` 因 `ring`（rustls 依赖）的 C/汇编编译需要 macOS 交叉工具链而失败——属本机工具链限制，非代码问题；macOS 构建必须在 Mac 或 CI 完成。待真机确认项：托盘彩色图标在菜单栏深浅色下的观感（非 template image）、`skipTaskbar` 在 macOS 的 Dock 表现、透明无边框窗口的阴影观感（WebView2 特有的 B.5/B.6 问题在 WKWebView 不存在）。
+- **打包落地（P1）**：`tauri.conf.json` `bundle.active=true`、`targets=["nsis","dmg"]`、图标列表补齐（png×3 + icns + ico）、`category=Utility`；新增 `.github/workflows/release.yml`（matrix：windows-latest → NSIS exe，macos-latest → DMG/aarch64；`workflow_dispatch` 与 `v*` tag 触发；artifacts 上传）。Windows 包本机 `npx tauri build` 产出；macOS 包仅 CI 可构建。
+
+### B.8 改进实施记录（2026-08-29 · 第五批）
+
+- **内置 OAuth 设备码登录落地（P1）**：按 `docs/PROMPT-builtin-oauth-login.md` 方案实施，复用优先原则不变——凭证可用时绝不出现登录 UI；仅凭证文件缺失（`CredError::NotFound`）或 refresh 被服务端拒绝（HTTP 400/401，`invalid_grant`）时 `usage-update` 载荷置 `needs_login: true`（新增字段，前端向后兼容），网络错误/5xx 照旧走 ⚠ 退避。
+  - 新增 `src-tauri/src/auth.rs`：`start_login`（申请设备码 → 存唯一会话 → 后台 tokio 任务轮询 token → 成功按 CLI 格式 `write_atomic` 写入共用凭证文件 → emit `login-update success` → 经 `RefreshSignal` 立即抓取一次，不等下一轮 60s）、`cancel_login`、`open_auth_url`；轮询按服务端 `interval` 循环，`slow_down` 间隔 +5s（RFC 8628），`expired_token` / `access_denied` / 连续 3 次传输失败 / 超过 `expires_in` 终止并 emit 对应状态；`watch` channel 取消，会话单实例（重入先取消旧会话，按 `device_code` 防误删）。打开授权页由 `open_url` 按 `cfg` 分派（cmd `start` / `open` / `xdg-open`），无新依赖。
+  - `credentials.rs` 提取 `parse_token_response` / `now_secs` 供 refresh 与设备码流程共用（行为不变）；`poller.rs` 失败类型改为 `FetchFailure { message, needs_login }`，refresh 链路保留「先读文件复用 CLI 结果 / 旧 token 兜底」逻辑，仅在最终被拒时携带 needs_login。
+  - 前端 `ui/`：卡片新增 `#login-view`（入口按钮 / 8 位用户码 + 授权链接 + 倒计时 + 状态行），`needs_login` 时替代原「请先 /login」纯文本；登录会话进行中抑制失焦自动收起（用户需在浏览器授权页对照用户码）；托盘新增「登录账号」项（默认禁用），poller 按 `needs_login` 翻转 enabled，点击聚焦主窗。
+  - 验证：`cargo check` / `cargo test` 通过（8 个测试，新增设备码响应解析、token 轮询错误分类、interval 调整、needs_login 判定等 6 个）；`tauri dev` 双路径实测——有凭证时正常出数（`usage ok`，无登录 UI、写回重试机制不受影响）；`KIMI_CODE_HOME` 指向空目录模拟凭证缺失，「需要登录」状态稳定进入（未检测到登录 → needs_login → 托盘项翻转执行无异常）。真实授权闭环（浏览器输入用户码换 token）与 CLI 共存场景（手测 B/C/D）待用户真机确认。
+
+### B.9 改进实施记录（2026-08-29 · 第六批）
+
+- **拖拽无法到达屏幕顶修复（P1）**：根因有两层——① `data-tauri-drag-region` 走 Windows 系统移动循环（HTCAPTION），系统将窗口钳制在显示器边界内，横条贴屏幕顶需要窗口 y=-36（36px 透明边距出屏）被拦；② 位置恢复判定要求窗口完全在屏内，贴顶位置（y<0）重启后回退默认右下角。修复：改用**自定义拖拽**（[ui/app.js](../ui/app.js)：`pointerdown` 记录 `outerPosition()` 起点 → `pointermove` 按 devicePixelRatio 换算 delta → rAF 合并 `setPosition`，pointer capture 保证拖出元素仍收事件，无系统钳制，全平台一致）；恢复判定放宽为**窗口与任一显示器有交集即可**（完全离开所有显示器才回退，[main.rs](../src-tauri/src/main.rs)）；capabilities 新增 `core:window:allow-outer-position` / `core:window:allow-set-position`。验证：Win32 `SetWindowPos` 将窗口置于 y=-55 → `Moved` 事件保存 → 重启后精确恢复 (1514, -55)，证明 set_position 支持负坐标且交集判定放行（物理拖拽手感需真机确认；沙箱环境无法注入鼠标输入驱动系统移动循环）。
+- **应用图标替换**：新主图标（用户提供的 1254×1254 QuotaX-icon.png）经 `npx tauri icon` 全套重生成（icon.ico/icns/png、Square*/StoreLogo、android/ios mipmaps）；`icon-warn.ico` 基于新主图标重制，并新增可复现生成工具 [examples/gen_icon_warn.rs](../src-tauri/examples/gen_icon_warn.rs)（纯 ico crate 实现：box-filter 平均池化缩放 + 1px 抗锯齿橙点角标，`cargo run --example gen_icon_warn` 一键重生成，替代此前一次性脚本），`cargo test` 8 项全绿（含 `warn_icon_decodes` 解码新文件）。

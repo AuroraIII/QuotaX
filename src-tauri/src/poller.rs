@@ -9,6 +9,7 @@ use serde::Serialize;
 use tauri::image::Image;
 use tauri::AppHandle;
 use tauri::Emitter;
+use tauri::Manager;
 
 use crate::credentials::{self, Credentials, CredError};
 use crate::usage::{self, RawUsageResponse, UsagePayload};
@@ -33,7 +34,30 @@ pub enum UpdateEvent {
         message: String,
         /// 上次成功数据（置灰展示）
         stale: Option<UsagePayload>,
+        /// 需要登录（凭证文件缺失或 refresh 被拒）→ 前端展示内置登录视图；
+        /// 网络错误/5xx 不置位，维持 ⚠ 退避逻辑
+        needs_login: bool,
     },
+}
+
+/// 抓取失败（含是否需要进入登录态的判定）
+pub struct FetchFailure {
+    pub message: String,
+    pub needs_login: bool,
+}
+
+/// 凭证读取失败 → 是否需要登录（仅文件缺失；解析/IO 错误照旧走 ⚠ 退避）
+fn read_failure(e: CredError) -> FetchFailure {
+    FetchFailure {
+        needs_login: matches!(e, CredError::NotFound(_)),
+        message: e.to_string(),
+    }
+}
+
+/// refresh 被服务端拒绝（HTTP 400/401，如 invalid_grant）说明 refresh_token
+/// 已被吊销或过期 → 需要重新登录
+fn is_login_rejected(err: &CredError) -> bool {
+    matches!(err, CredError::Refresh { status: 400 | 401, .. })
 }
 
 fn reqwest_error(e: &reqwest::Error) -> String {
@@ -76,21 +100,27 @@ async fn get_usage(
 /// 1. 读凭证（每次重新读文件，天然兼容 CLI 侧刷新/旋转）；
 /// 2. token 临期 → refresh（refresh 失败且可能是 refresh_token 被 CLI 旋转时重读文件再试一次）；
 /// 3. 401 → 重读文件（CLI 刚刷过 token）重试一次，仍失败再 refresh + 重试。
+/// 失败分类：凭证缺失或 refresh 被拒（400/401）→ needs_login（前端进入登录视图），
+/// 其余错误照旧走 ⚠ 退避。
 pub async fn fetch_once(
     client: &reqwest::Client,
     pending_write: &mut Option<Credentials>,
-) -> Result<UsagePayload, String> {
+) -> Result<UsagePayload, FetchFailure> {
     retry_pending_write(pending_write);
 
-    let creds = credentials::read().map_err(|e| e.to_string())?;
+    let creds = match credentials::read() {
+        Ok(c) => c,
+        Err(e) => return Err(read_failure(e)),
+    };
 
     let mut token = creds.access_token.clone();
     if credentials::is_stale(&creds) {
         match refresh_guarded(client, &creds, pending_write).await {
             Ok(fresh) => token = fresh.access_token,
-            Err(msg) => {
-                // 刷新失败：仍用旧 token 试一次（时钟偏差时可能仍有效）
-                log::warn_or_print(&format!("[quotax] {msg}，先用现有 token 尝试"));
+            Err(f) => {
+                // 刷新失败：仍用旧 token 试一次（时钟偏差时可能仍有效；
+                // 若旧 token 最终也 401，会在下方第二次 refresh 后携带 needs_login）
+                log::warn_or_print(&format!("[quotax] {}，先用现有 token 尝试", f.message));
             }
         }
     }
@@ -99,22 +129,34 @@ pub async fn fetch_once(
         Ok(raw) => Ok(usage::to_payload(&raw)),
         Err((is_401, msg)) => {
             if !is_401 {
-                return Err(msg);
+                return Err(FetchFailure {
+                    message: msg,
+                    needs_login: false,
+                });
             }
             // 401：重新读文件（CLI 可能刚刷新过），文件 token 变了则直接重试
-            let reread = credentials::read().map_err(|e| e.to_string())?;
+            let reread = match credentials::read() {
+                Ok(c) => c,
+                Err(e) => return Err(read_failure(e)),
+            };
             if reread.access_token != token {
                 return get_usage(client, &reread.access_token)
                     .await
                     .map(|raw| usage::to_payload(&raw))
-                    .map_err(|(_, m)| m);
+                    .map_err(|(_, m)| FetchFailure {
+                        message: m,
+                        needs_login: false,
+                    });
             }
             // 文件没变 → 自己 refresh 再重试
             let fresh = refresh_guarded(client, &reread, pending_write).await?;
             get_usage(client, &fresh.access_token)
                 .await
                 .map(|raw| usage::to_payload(&raw))
-                .map_err(|(_, m)| m)
+                .map_err(|(_, m)| FetchFailure {
+                    message: m,
+                    needs_login: false,
+                })
         }
     }
 }
@@ -143,11 +185,12 @@ fn retry_pending_write(pending: &mut Option<Credentials>) {
 /// 刷新并原子写回；若 refresh 端点拒绝（refresh_token 已被 CLI 旋转），
 /// 重读文件一次：CLI 已刷新过则直接复用其结果。
 /// 写回失败（如 CLI 持有文件句柄）时暂存 pending_write 由主循环重试。
+/// refresh 被服务端拒绝（400/401）时失败携带 needs_login。
 async fn refresh_guarded(
     client: &reqwest::Client,
     creds: &Credentials,
     pending_write: &mut Option<Credentials>,
-) -> Result<Credentials, String> {
+) -> Result<Credentials, FetchFailure> {
     match credentials::refresh(client, &creds.refresh_token).await {
         Ok(fresh) => {
             if let Err(e) = credentials::write_atomic(&credentials::credentials_file(), &fresh) {
@@ -169,7 +212,10 @@ async fn refresh_guarded(
                     }
                 }
             }
-            Err(msg)
+            Err(FetchFailure {
+                needs_login: is_login_rejected(&err),
+                message: msg,
+            })
         }
     }
 }
@@ -219,6 +265,8 @@ pub async fn run(app: AppHandle, notify: std::sync::Arc<tokio::sync::Notify>) {
     let warn_icon = warn_tray_icon();
     let default_icon = app.default_window_icon().map(|i| i.to_owned());
     let mut tray_warn = false;
+    // 托盘「登录账号」项使能状态（与 main.rs 创建时的 disabled 对齐）
+    let mut tray_login_enabled = false;
 
     loop {
         let result = fetch_once(&client, &mut pending_write).await;
@@ -249,17 +297,40 @@ pub async fn run(app: AppHandle, notify: std::sync::Arc<tokio::sync::Notify>) {
                 *stale_cache.lock().unwrap() = Some(payload.clone());
                 UpdateEvent::Ok { payload }
             }
-            Err(message) => {
+            Err(failure) => {
                 let stale = stale_cache.lock().unwrap().clone();
                 let backoff_msg = BACKOFF
                     .get(fail_count.min(BACKOFF.len() - 1))
                     .map(|d| format!("，{}s 后重试", d.as_secs()))
                     .unwrap_or_default();
-                log::warn_or_print(&format!("[quotax] 刷新失败: {message}{backoff_msg}"));
+                log::warn_or_print(&format!(
+                    "[quotax] 刷新失败: {}{}",
+                    failure.message, backoff_msg
+                ));
                 fail_count += 1;
-                UpdateEvent::Error { message, stale }
+                UpdateEvent::Error {
+                    message: failure.message,
+                    stale,
+                    needs_login: failure.needs_login,
+                }
             }
         };
+
+        // 托盘「登录账号」项：仅需要登录（凭证缺失/refresh 被拒）时可用
+        let needs_login = match &event {
+            UpdateEvent::Ok { .. } => false,
+            UpdateEvent::Error { needs_login, .. } => *needs_login,
+        };
+        if needs_login != tray_login_enabled {
+            let item = app.state::<crate::TrayLoginItem>().0.lock().unwrap().clone();
+            if let Some(item) = item.as_ref() {
+                match item.set_enabled(needs_login) {
+                    Ok(()) => tray_login_enabled = needs_login,
+                    Err(e) => eprintln!("[quotax] 托盘登录项切换失败: {e}"),
+                }
+            }
+        }
+
         if let Err(e) = app.emit("usage-update", &event) {
             eprintln!("[quotax] emit 失败: {e}");
         }
@@ -290,6 +361,35 @@ mod log {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn login_rejection_classification() {
+        // refresh 被拒（400/401，invalid_grant）→ 需要重新登录
+        assert!(is_login_rejected(&CredError::Refresh {
+            status: 400,
+            body: r#"{"error":"invalid_grant"}"#.into()
+        }));
+        assert!(is_login_rejected(&CredError::Refresh {
+            status: 401,
+            body: "unauthorized".into()
+        }));
+        // 5xx / 网络错误不进入登录态
+        assert!(!is_login_rejected(&CredError::Refresh {
+            status: 503,
+            body: "unavailable".into()
+        }));
+        assert!(!is_login_rejected(&CredError::Transport("timeout".into())));
+    }
+
+    #[test]
+    fn read_failure_only_on_missing_file() {
+        let f = read_failure(CredError::NotFound(PathBuf::from("x.json")));
+        assert!(f.needs_login);
+        assert!(f.message.contains("未检测到"));
+        let f = read_failure(CredError::Parse("bad json".into()));
+        assert!(!f.needs_login);
+    }
 
     #[test]
     fn warn_icon_decodes() {

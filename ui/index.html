@@ -9,8 +9,8 @@
 <body>
 
 <div class="widget" id="widget">
-  <!-- 收起态横条：整条可拖拽 -->
-  <div class="bar" id="bar" data-tauri-drag-region>
+  <!-- 收起态横条：整条可拖拽（自定义拖拽逻辑见 app.js，替代 data-tauri-drag-region） -->
+  <div class="bar" id="bar">
     <div class="k-dot">K</div>
     <div class="bar-rows">
       <div class="bar-row">
@@ -33,6 +33,26 @@
       <span class="card-time" id="refresh-time">--</span>
     </div>
     <div id="error-line" class="error-line" hidden></div>
+    <!-- 登录视图（needs_login：凭证缺失或 refresh 被拒时显示） -->
+    <div id="login-view" class="login-view" hidden>
+      <div id="login-idle">
+        <div class="login-hint">未检测到可用的 Kimi Code 登录凭证</div>
+        <button class="btn login-btn" id="btn-login">使用 Kimi 账号登录</button>
+      </div>
+      <div id="login-panel" hidden>
+        <div class="login-hint">请在授权页输入以下代码完成登录</div>
+        <div class="user-code" id="login-user-code">------</div>
+        <div class="login-link" id="login-link">--</div>
+        <div class="login-actions">
+          <button class="btn" id="btn-open-auth">打开授权页</button>
+          <button class="btn" id="btn-cancel-login">取消</button>
+        </div>
+      </div>
+      <div class="login-status" id="login-status" hidden>
+        <span id="login-status-text"></span>
+        <span class="login-countdown" id="login-countdown"></span>
+      </div>
+    </div>
     <div id="rows"></div>
     <div class="extra-row" id="extra-row" hidden>
       <span>Extra Usage 余额</span>
