@@ -288,8 +288,8 @@ bar.addEventListener('pointerdown', async e => {
     const pos = await mainWindow.outerPosition(); // 物理像素
     drag = {
       id: e.pointerId,
-      sx: e.clientX,
-      sy: e.clientY,
+      sx: e.screenX,
+      sy: e.screenY,
       wx: pos.x,
       wy: pos.y,
       nx: pos.x,
@@ -303,10 +303,12 @@ bar.addEventListener('pointerdown', async e => {
 
 bar.addEventListener('pointermove', e => {
   if (!drag || e.pointerId !== drag.id) return;
-  // clientX/Y 为 CSS 逻辑像素，窗口坐标为物理像素，按 DPI 缩放换算
+  // 必须用 screenX/Y（屏幕坐标）：clientX/Y 相对窗口视口，窗口一动 clientX
+  // 就反向变化，形成反馈回路导致疯狂抖动。screenX/Y 与窗口位置无关，
+  // 屏幕逻辑像素差 × dpr = 物理像素位移。
   const dpr = window.devicePixelRatio || 1;
-  drag.nx = drag.wx + Math.round((e.clientX - drag.sx) * dpr);
-  drag.ny = drag.wy + Math.round((e.clientY - drag.sy) * dpr);
+  drag.nx = drag.wx + Math.round((e.screenX - drag.sx) * dpr);
+  drag.ny = drag.wy + Math.round((e.screenY - drag.sy) * dpr);
   applyDragMove();
 });
 
