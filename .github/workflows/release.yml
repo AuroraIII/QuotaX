@@ -70,3 +70,23 @@ jobs:
           path: |
             src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
             src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz
+
+  # 打 tag（v*）时，在两个平台构建完成后自动创建 GitHub Release 并附上安装包。
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: QuotaX ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            quotax-windows-x86_64/*.exe
+            quotax-macos-aarch64/*.dmg
+            quotax-macos-aarch64/*.app.tar.gz
