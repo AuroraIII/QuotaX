@@ -6,8 +6,9 @@
 <title>QuotaX 界面预览（mock 数据）</title>
 <style>
   :root {
-    --bg: rgba(18, 18, 26, 0.85);
-    --bg-card: rgba(24, 24, 34, 0.92);
+    --bg-bar: linear-gradient(180deg, rgba(41, 41, 57, 0.96), rgba(16, 16, 25, 0.94));
+    --bg-card: linear-gradient(180deg, rgba(47, 47, 65, 0.97), rgba(22, 22, 33, 0.95));
+    --edge-hi: inset 0 1px 0 rgba(255, 255, 255, 0.10);
     --border: rgba(255, 255, 255, 0.08);
     --text: #e5e7eb;
     --text-dim: #9ca3af;
@@ -38,17 +39,17 @@
   /* 收起态横条（两行：周额度 + 5 小时窗口） */
   .bar {
     width: 210px; height: 42px;
-    background: var(--bg);
+    background: var(--bg-bar);
     border: 1px solid var(--border);
+    border-top-color: rgba(255, 255, 255, 0.14);
     border-radius: 12px;
-    backdrop-filter: blur(12px);
     display: flex; align-items: center; gap: 8px;
     padding: 5px 10px;
     cursor: grab;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-    transition: box-shadow .2s;
+    /* 与 ui/style.css 一致：无外发光投影（真实窗口与内容等大，会被裁掉），
+       层次全靠 inset 内绘 */
+    box-shadow: var(--edge-hi), inset 0 -8px 14px -6px rgba(0, 0, 0, 0.28);
   }
-  .bar:hover { box-shadow: 0 6px 20px rgba(0, 0, 0, 0.55); }
 
   .k-dot {
     width: 16px; height: 16px; border-radius: 4px; flex-shrink: 0;
@@ -61,8 +62,14 @@
   .bar-row { display: flex; align-items: center; gap: 6px; }
   .bar-row .label { font-size: 10px; color: var(--text-dim); width: 14px; flex-shrink: 0; }
 
-  .track { flex: 1; height: 5px; background: var(--track); border-radius: 3px; overflow: hidden; }
-  .fill { height: 100%; border-radius: 3px; background: var(--ok); transition: width .4s; }
+  .track {
+    flex: 1; height: 5px; background: var(--track); border-radius: 3px; overflow: hidden;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+  }
+  .fill {
+    height: 100%; border-radius: 3px; background: var(--ok); transition: width .4s;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  }
   .fill.warn { background: var(--warn); }
   .fill.danger { background: var(--danger); }
   .fill.error { background: var(--track); }
@@ -77,9 +84,9 @@
     width: 300px;
     background: var(--bg-card);
     border: 1px solid var(--border);
+    border-top-color: rgba(255, 255, 255, 0.14);
     border-radius: 12px;
-    backdrop-filter: blur(16px);
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+    box-shadow: var(--edge-hi), inset 0 -10px 18px -8px rgba(0, 0, 0, 0.22);
     padding: 14px 16px 10px;
     opacity: 0;
     transform: translateY(-6px) scale(.98);

@@ -1,10 +1,14 @@
 /* QuotaX —— 与 preview/index.html 对齐的小组件样式（透明窗口版） */
 
 :root {
-  /* 不透明度略高：WebView2 透明窗口下 backdrop-filter 按矩形包围盒渲染、无视
-     border-radius（四角出现方形硬角阴影），已禁用毛玻璃，改以较高不透明度保证可读性 */
-  --bg: rgba(18, 18, 26, 0.92);
-  --bg-card: rgba(24, 24, 34, 0.96);
+  /* WebView2 透明窗口下 backdrop-filter 按元素矩形包围盒渲染、无视 border-radius
+     （四角出现方形硬块），真毛玻璃不可用（B.5）；且 B.12 起窗口与内容等大、
+     任何外发光投影都会被窗口边界整个裁掉。因此玻璃质感全部用「内绘」手法实现：
+     纵向渐变底色（上亮下暗）+ inset 顶部高光 + inset 底部暗部——全部绘制在边框盒内、
+     被 border-radius 裁剪，不撑出窗口，零空气墙代价 */
+  --bg-bar: linear-gradient(180deg, rgba(41, 41, 57, 0.96), rgba(16, 16, 25, 0.94));
+  --bg-card: linear-gradient(180deg, rgba(47, 47, 65, 0.97), rgba(22, 22, 33, 0.95));
+  --edge-hi: inset 0 1px 0 rgba(255, 255, 255, 0.10);
   --border: rgba(255, 255, 255, 0.08);
   --text: #e5e7eb;
   --text-dim: #9ca3af;
@@ -17,11 +21,12 @@
 * { margin: 0; padding: 0; box-sizing: border-box; font-family: "Segoe UI", "Microsoft YaHei", sans-serif; }
 
 html, body {
-  /* 窗口比内容大一圈：CSS box-shadow 在窗口硬边界处会被矩形裁剪（出现方形角），
-     四周留出 36px 透明边距容纳阴影（最大 blur 32px） */
-  width: 372px;
-  height: 372px;
-  padding: 36px;
+  /* 窗口随展开/收起动态调整大小（见 main.rs set_widget_expanded），此处跟随窗口。
+     零透明边距：窗口严格等于内容外框，窗口外不存在拦截点击的「空气墙」——
+     透明区域不穿透鼠标事件，任何 padding 边距都会拦截下方窗口的点击（B.12 决策：
+     点到下方内容优先于 box-shadow 投影，类比输入法框体外全部可点） */
+  width: 100%;
+  height: 100%;
   background: transparent;
   overflow: hidden;
   color: var(--text);
@@ -33,16 +38,17 @@ html, body {
 /* ============ 收起态横条 ============ */
 .bar {
   width: 210px; height: 42px;
-  background: var(--bg);
+  background: var(--bg-bar);
   border: 1px solid var(--border);
+  border-top-color: rgba(255, 255, 255, 0.14); /* 顶缘受光，模拟玻璃厚度 */
   border-radius: 12px;
   display: flex; align-items: center; gap: 8px;
   padding: 5px 10px;
   cursor: grab;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
-  transition: box-shadow .2s;
+  /* 只做内阴影（顶部高光 + 底部暗部）：外发光 box-shadow 会被与内容等大的
+     窗口边界整个裁掉，故层次全靠 inset 内绘 */
+  box-shadow: var(--edge-hi), inset 0 -8px 14px -6px rgba(0, 0, 0, 0.28);
 }
-.bar:hover { box-shadow: 0 8px 24px rgba(0, 0, 0, 0.38); }
 .bar.dragging { cursor: grabbing; }
 /* 拖拽区域：子元素不接收指针事件，让拖拽事件覆盖整条横条 */
 .bar > * { pointer-events: none; }
@@ -58,8 +64,14 @@ html, body {
 .bar-row { display: flex; align-items: center; gap: 6px; }
 .bar-row .label { font-size: 10px; color: var(--text-dim); width: 14px; flex-shrink: 0; }
 
-.track { flex: 1; height: 5px; background: var(--track); border-radius: 3px; overflow: hidden; }
-.fill { height: 100%; border-radius: 3px; background: var(--ok); transition: width .4s; }
+.track {
+  flex: 1; height: 5px; background: var(--track); border-radius: 3px; overflow: hidden;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35); /* 凹槽感 */
+}
+.fill {
+  height: 100%; border-radius: 3px; background: var(--ok); transition: width .4s;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35); /* 釉面高光 */
+}
 .fill.warn { background: var(--warn); }
 .fill.danger { background: var(--danger); }
 .fill.error { background: var(--track); }
@@ -74,8 +86,10 @@ html, body {
   width: 300px;
   background: var(--bg-card);
   border: 1px solid var(--border);
+  border-top-color: rgba(255, 255, 255, 0.14);
   border-radius: 12px;
-  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.35);
+  /* 内绘层次，原因同 .bar */
+  box-shadow: var(--edge-hi), inset 0 -10px 18px -8px rgba(0, 0, 0, 0.22);
   padding: 14px 16px 10px;
   opacity: 0;
   transform: translateY(-6px) scale(.98);
@@ -99,7 +113,7 @@ html, body {
   word-break: break-all;
 }
 
-/* limits 行数多时行区滚动，避免卡片底部被窗口裁剪（窗口 372px 高度下的安全预算） */
+/* limits 行数多时行区滚动，防止卡片无限长高（窗口高度随卡片内容动态调整，144 为行区上限预算） */
 #rows { max-height: 144px; overflow-y: auto; }
 #rows::-webkit-scrollbar { width: 4px; }
 #rows::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.15); border-radius: 2px; }

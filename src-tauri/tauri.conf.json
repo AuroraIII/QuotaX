@@ -12,8 +12,8 @@
       {
         "label": "main",
         "title": "QuotaX",
-        "width": 372,
-        "height": 372,
+        "width": 210,
+        "height": 42,
         "decorations": false,
         "transparent": true,
         "alwaysOnTop": true,

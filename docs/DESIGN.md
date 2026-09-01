@@ -380,3 +380,39 @@ QuotaX/
 - **拖拽无法到达屏幕顶修复（P1）**：根因有两层——① `data-tauri-drag-region` 走 Windows 系统移动循环（HTCAPTION），系统将窗口钳制在显示器边界内，横条贴屏幕顶需要窗口 y=-36（36px 透明边距出屏）被拦；② 位置恢复判定要求窗口完全在屏内，贴顶位置（y<0）重启后回退默认右下角。修复：改用**自定义拖拽**（[ui/app.js](../ui/app.js)：`pointerdown` 记录 `outerPosition()` 起点 → `pointermove` 按 devicePixelRatio 换算 delta → rAF 合并 `setPosition`，pointer capture 保证拖出元素仍收事件，无系统钳制，全平台一致）；恢复判定放宽为**窗口与任一显示器有交集即可**（完全离开所有显示器才回退，[main.rs](../src-tauri/src/main.rs)）；capabilities 新增 `core:window:allow-outer-position` / `core:window:allow-set-position`。验证：Win32 `SetWindowPos` 将窗口置于 y=-55 → `Moved` 事件保存 → 重启后精确恢复 (1514, -55)，证明 set_position 支持负坐标且交集判定放行（物理拖拽手感需真机确认；沙箱环境无法注入鼠标输入驱动系统移动循环）。
 - **拖拽抖动修复（P1，紧随上项）**：自定义拖拽首版用 `clientX/clientY` 计算位移——但 client 坐标相对**窗口视口**，窗口每移动一步，光标的 clientX 就反向变化一步，`nx = wx + (clientX - sx)*dpr` 形成正反馈回路（窗口前跳 → clientX 回缩 → 命令位置回拉 → 再前跳……），表现为拖动时疯狂抖动。修复：改用 **`screenX/screenY`（屏幕坐标）** 计算位移——屏幕坐标与窗口自身位置无关，彻底消除反馈回路；屏幕逻辑像素差 × devicePixelRatio = 物理像素位移，与 `outerPosition()`（物理像素）同量纲。多显示器混合 DPI 场景下 dpr 随窗口所在屏切换，可能存在亚像素级累计误差，对小组件可接受。
 - **应用图标替换**：新主图标（用户提供的 1254×1254 QuotaX-icon.png）经 `npx tauri icon` 全套重生成（icon.ico/icns/png、Square*/StoreLogo、android/ios mipmaps）；`icon-warn.ico` 基于新主图标重制，并新增可复现生成工具 [examples/gen_icon_warn.rs](../src-tauri/examples/gen_icon_warn.rs)（纯 ico crate 实现：box-filter 平均池化缩放 + 1px 抗锯齿橙点角标，`cargo run --example gen_icon_warn` 一键重生成，替代此前一次性脚本），`cargo test` 8 项全绿（含 `warn_icon_decodes` 解码新文件）。
+
+### B.10 改进实施记录（2026-09-01 · 第七批）
+
+- **透明边距「空气墙」修复（P0）**：B.6 为容纳 box-shadow 给窗口加了 36px 透明边距，但窗口固定 372×372，透明区域**不穿透鼠标事件**——收起态下可见内容只有 210×42 横条，周围大片透明区域拦截了下方窗口的点击。修复：窗口随展开/收起**动态调整大小**，始终贴合可见内容——
+  - 收起态窗口 258×90（横条 210×42 + 24px 边距，恰好容纳横条阴影 blur ≤24，不重现 B.6 方角裁剪）；展开态维持 372×372（36px 边距 + 卡片阴影不变）。
+  - 新增 `set_widget_expanded(expanded)` 命令（main.rs）：以**横条屏幕位置为锚**，按两态边距差（36-24）平移窗口后 `set_size` 重设尺寸，横条在屏幕上纹丝不动；几何常量（边距/尺寸）集中在 Rust 侧，CSS 只认 `--m` 变量（`html,body` 宽高改 100%、padding 变量化），`tauri.conf.json` 初始尺寸改 258×90（启动即收起态，无大窗闪烁）。
+  - 位置持久化归一化为**展开态等价坐标**再落盘（与旧版 settings.json 语义一致，无缝兼容）；启动恢复按收起态几何换算（存档 + 12×scale），交集判定改用收起态尺寸。
+  - 前端展开/收起收敛为 `setExpanded()` 统一入口（悬停 200ms/移出 300ms/失焦收起三条路径共用），切换 CSS 类的同时调命令同步窗口。
+  - 验证：`cargo check`/`cargo test`（8 项）通过；定时器驱动 `setExpanded` 实测窗口矩形——收起 (3128,509) 516×180 ↔ 展开 (3104,485) 744×744（scale=2 环境，即 258×90 ↔ 372×372 CSS 像素），位移恰为 -24px 锚定正确，收起后无漂移；settings.json 落盘为展开态坐标 (3104,485) 与旧版一致。注：本环境注入的鼠标事件送不到 WebView2（与旧沙箱现象一致），真实悬停展开手感需真机确认。
+- **双层 padding 回归修复（P0，紧随上项）**：上项把透明边距写成 `html, body { padding: var(--m) }`——该选择器给 **html 与 body 两层各自**设了 padding，实际边距翻倍（收起 48px/展开 72px），而窗口尺寸（`COLLAPSED_W/H`、`EXPANDED_W/H`）与 Rust 侧锚定/坐标归一化（`set_widget_expanded` 的 ±12×scale、`save_window_pos` 的展开态换算）全部按**单层边距**计算，与渲染不符：① 横条/卡片被推出窗口右/下缘遭 `overflow: hidden` 裁剪（收起态窗口 258px 宽，48+210=258，右侧 0 余量贴边裁剪）；② 前一晚的窗口矩形实测只验证了 Rust 侧外框几何，未验证内容在窗口内的位置，故回归漏网。修复（[ui/style.css](../ui/style.css)）：padding 只保留在单一元素——`html, body` 共享规则删除 padding（html padding 恒 0），单独 `body { padding: var(--m, 24px); }`，有效边距严格等于 `--m`。
+  - 验证（临时 `debug_report` 命令 + 定时器循环上报 `bar.getBoundingClientRect()`，验证后已移除）：收起态 bar=(24,24) 尺寸 210×42、`pad(html/body)=0px/24px`；展开态 bar=(36,36)、card=(36,84) 300×213 完整含于 372×372 视口、`pad=0px/36px`；窗口矩形循环收起 (3036,1192) 516×180 ↔ 展开 (3012,1168) 744×744（scale=2），锚定位移恰为 **-(12×scale)**=-24 物理像素，横条屏幕位置恒定（1542 CSS px），10+ 周期零漂移；`cargo check`/`cargo test`（8 项）全绿。settings.json 归一化本轮未能复验：沙箱已改为拦截 `%APPDATA%` 写入（应用 `let _ = fs::write` 静默吞错，文件停留在上轮 00:19 落盘值），该代码路径本轮未改动且上轮已验证。
+  - 环境备注：本轮沙箱还拦截了 `%LOCALAPPDATA%\com.quotax.app\EBWebView`（LOCK/LOG/.tmp 文件级拒绝），WebView2 初始化失败（窗口对象存在但所有调用返回 `Runtime(FailedToReceiveMessage)`，webview 进程不存活），应用在沙箱内完全起不了 UI。验证借助**临时**代码建窗 + `WebviewWindowBuilder::data_directory` 指向项目内目录（沙箱放行项目路径）完成，验证后已连同配置还原；TRAE 外正常运行不受影响。
+- **展开「闪跳」回归修复（P0，原点恒定方案重构）**：上两项的锚定方案（边距随态切换 24↔36 + 窗口平移 ±12×scale 补偿）存在结构性缺陷——CSS padding 切换与 Rust 窗口平移分属两个进程，**无法同帧原子变更**：`setExpanded(true)` 同一 tick 先切 `--m`（横条瞬间下移 12px，此时窗口仍是旧几何 258×90），数毫秒后 IPC 到达 Rust 才平移窗口并扩尺寸（横条又跳回），两次反向跳变叠加为肉眼可见的「闪跳」，悬停展开不再自然。重构为**原点恒定方案**（[main.rs](../src-tauri/src/main.rs) / [ui/app.js](../ui/app.js) / [ui/style.css](../ui/style.css)）：
+  - body padding **恒定 24px**（删除 `--m` 变量与 JS 切换），横条永远钉在窗口 (24,24)；展开时窗口**只向右下扩尺寸**（258×90 → 372×372，原点不平移），长出区域全是透明边距 → 横条全程零位移，闪跳从结构上消除；且展开方向（右下）与卡片生长方向一致，观感自然。
+  - 时序：展开立即扩窗（卡片 180ms 淡入掩盖 IPC 延迟）；收起反向——先播卡片 180ms 退场动画，**220ms 后再缩窗**（立即缩会裁掉退场中的卡片右侧），期间重新展开则 `clearTimeout` 取消缩窗。
+  - Rust 侧随删简化：`set_widget_expanded` 去掉锚定平移仅 `set_size`；`save_window_pos` 去掉展开态等价坐标归一化（两态原点相同，直接落盘）；启动恢复去掉 +12×scale 换算。副作用：旧存档（展开态等价坐标）首次恢复会偏左上 12 CSS px，一次性偏移，重新拖放即好。
+  - 阴影余量复核（padding 24 下）：卡片 `box-shadow: 0 10px 32px`——右缘 24+300+32=356 ≤ 372、下缘 72+213+10+32=327 ≤ 372 均充足；左侧阴影尾 8px（α<5%）越界被裁，肉眼不可辨（远轻于 B.6 整角硬裁剪）。`cargo check`/`cargo test`（8 项）全绿。
+- **测试经验**：PowerShell 5.1 把无 BOM 的 UTF-8 脚本按 ANSI(GBK) 解析，中文注释会产生乱码并吃掉后续语句（表现为变量莫名为空）——.tools 下的测试脚本一律用英文注释。
+
+### B.11 改进实施记录（2026-09-01 · 第八批）
+
+- **展开态「大块空气墙」修复（P0，动态高度贴合内容）**：原点恒定方案（B.10 第三项）消除了闪跳，但展开态窗口仍**固定 372×372**——卡片实际高度随内容变化（典型 213px；无 summary/Extra Usage 行时更小），卡片下方最多留出 ~87px、右侧留出 16px 的透明区继续拦截点击。修复：展开窗口尺寸改为**按前端实测卡片高度动态计算**——
+  - 前端 `syncWindowSize()` 上报 `card.offsetHeight`，并经 `ResizeObserver` 在卡片内容变化（数据到达、错误行、登录视图切换）时跟随调整（[ui/app.js](../ui/app.js)）；
+  - Rust 侧 `set_widget_expanded(expanded, card_h)`：展开宽 **356**（24+300+32，右缘恰容卡片阴影 blur 32）、高 **114+card_h**（上边距 24 + 卡片顶 72 + 卡片高 + 下缘 42 容纳阴影 offset10+blur32），`card_h` 钳制 60–560 防御异常值；去重状态由 `AtomicBool` 改为 `Mutex<(bool, i32)>`，同一展开周期内卡片长高不会被误判为重复调用（[main.rs](../src-tauri/src/main.rs)）；
+  - 原点恒定、收起延时 220ms 缩窗等 B.10 时序设计不变；收起态 258×90 不变（24px 边距为横条阴影所需，属设计余量）。
+  - 验证（临时定时器循环 `setExpanded` + Win32 `GetWindowRect` 采样，`.tools/measure_dyn.ps1`，验证后临时代码已移除）：scale=2 环境下窗口矩形循环收起 (2917,976) 516×180 ↔ 展开 (2917,976) **712×654**（即 258×90 ↔ 356×327 CSS px，327=114+213 与实测卡片高一致），原点全程恒定、多周期零漂移；移除临时代码后重启采样确认启动即稳定收起态、无误展开；`cargo check`/`cargo test`（8 项）全绿。
+  - 已知边界（未改）：横条停靠屏幕底边附近时卡片向下展开仍会探出屏幕下缘（与 B.10 前相同，动态高度只是缩短了探出量）；如需彻底消除收起态 24px 透明环，只能去掉 box-shadow 让窗口与内容完全等大，属观感取舍，未实施。
+
+### B.12 改进实施记录（2026-09-01 · 第九批）
+
+- **空气墙彻底归零（P0，零边距方案）**：B.11 后窗口仍带一圈透明边距（收起 24px 环、展开右 32/下 42 的阴影余量）——透明区不穿透鼠标事件，边距即空气墙。用户决策：**点到下方内容优先于投影观感**（类比搜狗输入法：框体外所有区域都可点）。实施：
+  - CSS 移除全部 box-shadow（`.bar` / `.bar:hover` / `.card`）与 body 的 24px padding——窗口与内容等大后投影只会被窗口边界整个裁掉（完全裁掉 = 看不见，干净；部分裁掉才是 B.6 的方角硬边），保留 `border` 描边维持轮廓；
+  - 窗口严格等于内容外框：收起 **210×42**（横条本体，`tauri.conf.json` 初始尺寸同步），展开 **300×(48+卡片实测高)**；原点恒定、动态高度、ResizeObserver 跟随等 B.11 机制不变（几何常量简化：`MARGIN`/阴影余量常量删除，`CARD_TOP=48`）；
+  - 副作用：旧 settings.json 存档的窗口原点含 24px 边距，首次恢复横条会偏左上 24 CSS px，一次性偏移，重新拖放即好；卡片/横条失去投影后观感更平，可接受。
+  - 验证（临时定时器循环 `setExpanded` + `.tools/measure_dyn.ps1` Win32 采样，验证后临时代码已移除）：scale=2 环境窗口矩形循环收起 **420×84** ↔ 展开 **600×522**（即 210×42 ↔ 300×261 CSS px，261=48+213 与卡片实测高一致），原点 (2762,965) 全程恒定、多周期零漂移；移除临时代码后启动采样确认稳定收起态 420×84、无误展开；`cargo build`/`cargo test`（8 项）全绿。至此窗口任意时刻都不含内容外透明区，空气墙从结构上消除。
+- **内绘玻璃层次感（P2，紧随上项）**：去掉投影后观感偏平，在不撑出窗口的前提下找回质感——全部用绘制在边框盒内、被 border-radius 裁剪的手法：`.bar`/`.card` 底色改**纵向渐变**（上亮下暗，`--bg-bar`/`--bg-card`）、`border-top-color` 提亮的顶缘受光边、`--edge-hi` 顶部 inset 高光 + 底部 inset 暗部（模拟玻璃厚度）；`.track` 加 inset 凹槽、`.fill` 加 inset 釉面高光。真毛玻璃（backdrop-filter）仍不可用（B.5 结论不变：WebView2 透明窗口按矩形包围盒渲染、无视圆角）。`preview/index.html` 同步更新（顺带清除自 B.5 起残留的 backdrop-filter/外投影）。验证：`cargo build`/`cargo test` 全绿；改动为纯 CSS 内绘，窗口矩形复测不变（收起 420×84@scale2）。实机观感待用户确认。

@@ -6,6 +6,7 @@ const listen = tauri.event.listen;
 
 const widget = document.getElementById('widget');
 const bar = document.getElementById('bar');
+const card = document.getElementById('card');
 const rowsEl = document.getElementById('rows');
 const errorEl = document.getElementById('error-line');
 const extraRow = document.getElementById('extra-row');
@@ -265,7 +266,7 @@ function onUsageUpdate(event) {
 // ============ 交互 ============
 
 // 自定义拖拽：替代 data-tauri-drag-region 的系统移动循环——后者会把窗口钳制在
-// 显示器范围内，横条贴屏幕顶时（窗口 36px 透明边距出屏）到不了边；自定义
+// 显示器范围内，历史上窗口有透明边距时横条贴屏幕顶（边距出屏）到不了边；自定义
 // setPosition 无此限制，可自由拖到任意边缘，位置由 main.rs 按交集判定恢复。
 const mainWindow = tauri.window.getCurrentWindow();
 let drag = null; // { id, sx, sy, wx, wy, nx, ny, raf }
@@ -323,21 +324,52 @@ bar.addEventListener('pointerup', endDrag);
 bar.addEventListener('pointercancel', endDrag);
 window.addEventListener('blur', () => endDrag());
 
-// 悬停 200ms 展开，移出 300ms 收起（与 preview 一致）
+// 悬停 200ms 展开，移出 300ms 收起（与 preview 一致）。
+// 展开/收起必须经 setExpanded 统一入口：除切换 CSS 类外，还要同步窗口尺寸。
+// 窗口零透明边距、严格等于内容外框（搜狗输入法式：框体外全部可点），
+// 原点恒定不动、展开只向右下扩尺寸——横条全程零位移、无闪跳（几何常量与 main.rs 对应）。
+// 展开态高度按卡片实测高度上报（48 + card.offsetHeight，Rust 侧换算），
+// 卡片内容变化（错误行/登录视图/限额行数）经 ResizeObserver 跟随调整。
+let expandedState = false;
+let shrinkTimer = 0;
+function syncWindowSize(on) {
+  invoke('set_widget_expanded', {
+    expanded: on,
+    cardH: on ? card.offsetHeight : 0,
+  }).catch(console.error);
+}
+function setExpanded(on) {
+  if (on === expandedState) return;
+  expandedState = on;
+  widget.classList.toggle('expanded', on);
+  clearTimeout(shrinkTimer);
+  if (on) {
+    // 立即扩窗：长出的全是透明边距，卡片 180ms 淡入足以掩盖 IPC 延迟
+    syncWindowSize(true);
+  } else {
+    // 收起反向：先播卡片 180ms 退场动画，再缩窗（立即缩会裁掉退场中的卡片右侧）
+    shrinkTimer = setTimeout(() => syncWindowSize(false), 220);
+  }
+}
+// 展开期间卡片高度随数据渲染变化（首次展开时数据可能未到，卡片先小后大）
+new ResizeObserver(() => {
+  if (expandedState) syncWindowSize(true);
+}).observe(card);
+
 let openTimer, closeTimer;
 widget.addEventListener('mouseenter', () => {
   clearTimeout(closeTimer);
-  openTimer = setTimeout(() => widget.classList.add('expanded'), 200);
+  openTimer = setTimeout(() => setExpanded(true), 200);
 });
 widget.addEventListener('mouseleave', () => {
   clearTimeout(openTimer);
-  closeTimer = setTimeout(() => widget.classList.remove('expanded'), 300);
+  closeTimer = setTimeout(() => setExpanded(false), 300);
 });
 // 失焦自动收起（可通过 settings.json collapse_on_blur 关闭，默认开启）；
 // 登录会话进行中不收起——用户需在浏览器授权页对照用户码
 let collapseOnBlur = true;
 window.addEventListener('blur', () => {
-  if (collapseOnBlur && !loginActive) widget.classList.remove('expanded');
+  if (collapseOnBlur && !loginActive) setExpanded(false);
 });
 
 // 登录视图按钮
@@ -383,3 +415,5 @@ setInterval(() => {
   await listen('usage-update', onUsageUpdate);
   await listen('login-update', onLoginUpdate);
 })();
+
+
