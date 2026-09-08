@@ -23,13 +23,16 @@
 | 平台 | 安装包 | 说明 |
 | --- | --- | --- |
 | Windows (x64) | `QuotaX_x.y.z_x64-setup.exe` | NSIS 安装包，双击安装 |
-| macOS (Apple Silicon) | `QuotaX_x.y.z_aarch64.dmg` | DMG 镜像，拖入 Applications |
+| macOS (Apple Silicon) | `QuotaX_aarch64.app.zip`（推荐）/ `QuotaX_x.y.z_aarch64.dmg` | zip 解压后将 QuotaX.app 拖入 Applications；dmg 拖入 Applications |
 
 安装包可从 [Releases](https://github.com/AuroraIII/QuotaX/releases) 获取；最新构建也可在 [Actions](https://github.com/AuroraIII/QuotaX/actions) 的构建产物（Artifacts）中下载。
 
-> **关于安全提示**：安装包未做代码签名，首次运行时系统可能弹出警告——
+> **关于安全提示**：安装包未做代码签名与公证，首次运行时系统可能弹出警告——
 > - Windows SmartScreen：点击「更多信息 → 仍要运行」
-> - macOS Gatekeeper：右键点击应用 →「打开」，或在「系统设置 → 隐私与安全性」中放行
+> - macOS：应用已做 ad-hoc 签名，但从浏览器下载会被 Gatekeeper 隔离（提示「已损坏」）。安装后在终端执行一次即可正常使用：
+>   ```bash
+>   xattr -cr /Applications/QuotaX.app
+>   ```
 
 ## 🚀 使用指南
 
