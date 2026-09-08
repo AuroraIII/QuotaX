@@ -1,6 +1,6 @@
 [package]
 name = "quotax"
-version = "0.1.0"
+version = "0.1.1"
 description = "Kimi Code (Kimi Coding Plan) quota monitor desktop widget"
 edition = "2021"
 
