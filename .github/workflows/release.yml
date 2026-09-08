@@ -62,6 +62,8 @@ jobs:
       - name: Ad-hoc sign + ditto zip (macOS)
         if: runner.os == 'macOS'
         run: |
+          # dmg 打包完成后会清理 QuotaX.app，需单独重建 .app（cargo 有缓存，秒级完成）
+          npx tauri build --target ${{ matrix.target }} --bundles app
           APP="src-tauri/target/${{ matrix.target }}/release/bundle/macos/QuotaX.app"
           codesign --force --deep --sign - "$APP"
           codesign --verify --verbose "$APP"
