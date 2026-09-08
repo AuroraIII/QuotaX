@@ -103,5 +103,5 @@ jobs:
           generate_release_notes: true
           files: |
             quotax-windows-x86_64/*.exe
-            quotax-macos-aarch64/*.dmg
-            quotax-macos-aarch64/*.app.zip
+            quotax-macos-aarch64/**/*.dmg
+            quotax-macos-aarch64/**/*.app.zip
